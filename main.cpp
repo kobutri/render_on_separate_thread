@@ -54,7 +54,7 @@ extern "C" const size_t fragment_shader_source_len;
 
 int main()
 {
-
+    auto start = std::chrono::high_resolution_clock::now();
     glfwInit();
 
     glfwWindowHint(GLFW_SAMPLES, 8);
@@ -62,10 +62,8 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    auto start  = std::chrono::high_resolution_clock::now();
     window = glfwCreateWindow(
         SCR_WIDTH, SCR_HEIGHT, "Render Thread Test", nullptr, nullptr);
-    std::cout << std::chrono::duration_cast<std::chrono::microseconds >(std::chrono::high_resolution_clock::now()-start).count() << "us" << std::endl;
     if (window == nullptr) {
         std::cout << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -73,6 +71,7 @@ int main()
     }
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetWindowSizeCallback(window, framebuffer_size_callback);
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cout << "Failed to initialize GLAD" << std::endl;
         return -1;
@@ -80,10 +79,10 @@ int main()
 
     glEnable(GL_MULTISAMPLE);
 
-
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
     const char* shader_source = vertex_shader_source;
-    glShaderSource(vertexShader, 1, &shader_source, nullptr);
+    GLint shader_length = vertex_shader_source_len;
+    glShaderSource(vertexShader, 1, &shader_source, &shader_length);
     glCompileShader(vertexShader);
     int success;
     char infoLog[512];
@@ -95,7 +94,8 @@ int main()
     }
     unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     shader_source = fragment_shader_source;
-    glShaderSource(fragmentShader, 1, &shader_source, nullptr);
+    shader_length = fragment_shader_source_len;
+    glShaderSource(fragmentShader, 1, &shader_source, &shader_length);
     glCompileShader(fragmentShader);
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
     if (!success) {
@@ -135,14 +135,17 @@ int main()
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
-
-    /*
     bool first = true;
     m.lock();
     glfwMakeContextCurrent(nullptr);
+
+    std::cout << std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count() << "us" << std::endl;
     std::thread t([]() {
         glfwMakeContextCurrent(window);
+        double _time = 0;
+        size_t count = 0;
         while (!quit) {
+            double start = glfwGetTime();
             m2.lock();
             m.lock();
             m2.unlock();
@@ -150,6 +153,12 @@ int main()
             glfwSwapBuffers(window);
             cond.notify_all();
             m.unlock();
+            _time += glfwGetTime() - start;
+            count++;
+            if (count % 60 == 0) {
+                std::cout << 1000.0 * _time / 60 << "ms" << std::endl;
+                _time = 0;
+            }
         }
     });
     do {
@@ -171,8 +180,7 @@ int main()
         glfwPollEvents();
     } while (!quit);
 
-    t.join();*/
-
+    t.join();
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
@@ -190,8 +198,12 @@ void processInput(GLFWwindow* window)
     }
 }
 
+double _time = 0.0;
+size_t count = 0;
+
 void framebuffer_size_callback(GLFWwindow* _window, int _width, int _height)
 {
+    double start = glfwGetTime();
     m2.lock();
     m.lock();
     m2.unlock();
@@ -201,6 +213,13 @@ void framebuffer_size_callback(GLFWwindow* _window, int _width, int _height)
     m.unlock();
     cond.wait(lock);
     lock.unlock();
+
+    _time += glfwGetTime() - start;
+    count++;
+    if (count % 20 == 0) {
+        // std::cout << 1000.0*_time/20 << "ms" << std::endl;
+        _time = 0;
+    }
 }
 
 void render()
@@ -239,7 +258,6 @@ void setTransform()
 
 void setCamera()
 {
-    //auto camera = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH/(float)SCR_HEIGHT, 0.1f, 10000.0f);
     auto camera = glm::ortho<float>(0, SCR_WIDTH, SCR_HEIGHT, 0, -1000.0f, 1000.0f);
     glUseProgram(shaderProgram);
     unsigned int cameraLoc = glGetUniformLocation(shaderProgram, "camera");
